@@ -130,7 +130,6 @@ if (!empty($events['events'])) {
     }
 }
 
-
 // ------------------ ฟังก์ชันต่าง ๆ ------------------ //
 
 function handleFollow($event, $accessToken) {
