@@ -29,100 +29,115 @@ if (!empty($events['events'])) {
                 handleFollow($event, $access_token);
                 break;
             
-            case 'message':
-                if ($event['message']['type'] == 'text') {
-                    $replyToken = $event['replyToken'];
-                    $userMessage = trim($event['message']['text']);
-                    $userId = $event['source']['userId'];
-
-                    error_log("Message received: " . $userMessage . " from user: " . $userId);
-
-                    // ตรวจสอบ state ปัจจุบันของผู้ใช้
-                    $currentState = getUserState($userId, $conn);
-
+                case 'message':
+                    if ($event['message']['type'] == 'text') {
+                        $replyToken = $event['replyToken'];
+                        $userMessage = trim($event['message']['text']);
+                        $userId = $event['source']['userId'];
+                        
+                        error_log("Message received: " . $userMessage . " from user: " . $userId);
+                
+                        // ตรวจสอบ state ปัจจุบันของผู้ใช้
+                        $currentState = getUserState($userId, $conn);
+            
                     // เพิ่มเงื่อนไขเมื่อผู้ใช้พิมพ์ "เมนูหลัก", "home", "กลับ", หรือ "หน้าแรก"
                     if (in_array(strtolower($userMessage), ['เมนูหลัก', 'home', 'กลับ', 'หน้าแรก'])) {
-                        $welcomeMenu = createWelcomeMenu("สมาชิก");
-                        sendFlexReply($replyToken, $welcomeMenu, $access_token);
+                        // สร้างเมนูหลักด้วยฟังก์ชัน createWelcomeMenu
+                        $welcomeMenu = createWelcomeMenu("สมาชิก");  // สามารถปรับชื่อสมาชิกตามความเหมาะสม
+                        sendFlexReply($replyToken, $welcomeMenu, $access_token);  // ส่งเมนูหลักไปยังผู้ใช้
+
+                        // อัปเดตสถานะผู้ใช้ให้เป็น "WAITING_MAIN_MENU"
                         updateUserState($userId, 'WAITING_MAIN_MENU', $conn);
-                        return; // ออกจากฟังก์ชันไม่ต้องดำเนินการต่อ
+                        return;  // ออกจากฟังก์ชันไม่ต้องดำเนินการต่อ
                     }
+                        // เพิ่มเงื่อนไขเมื่อผู้ใช้เลือก "ไม่สนใจบิล" จาก Quick Reply
+                        $lowerMsg = strtolower(trim($userMessage));  // ทำให้ข้อความเป็นตัวเล็ก
+                        if ($lowerMsg == "ไม่สนใจบิล") {
+                            // สร้างเมนูหลักด้วยฟังก์ชัน createWelcomeMenu
+                            $welcomeMenu = createWelcomeMenu("สมาชิก");  // ใช้ชื่อสมาชิก
+                            sendFlexReply($replyToken, $welcomeMenu, $access_token);  // ส่งเมนูหลักไปยังผู้ใช้
 
-                    // เงื่อนไขเมื่อผู้ใช้เลือก "ไม่สนใจบิล" จาก Quick Reply
-                    $lowerMsg = strtolower(trim($userMessage));
-                    if ($lowerMsg == "ไม่สนใจบิล") {
-                        $welcomeMenu = createWelcomeMenu("สมาชิก");
-                        sendFlexReply($replyToken, $welcomeMenu, $access_token);
-                        updateUserState($userId, null, $conn);
-                        return; // ออกจากฟังก์ชันไม่ต้องดำเนินการต่อ
-                    }
-
-                    if ($lowerMsg == "กลับไปที่เมนูหลัก") {
-                        $welcomeMenu = createWelcomeMenu("สมาชิก");
-                        sendFlexReply($replyToken, $welcomeMenu, $access_token);
-                        updateUserState($userId, null, $conn);
-                    }
-
-                    // ตรวจสอบว่าเป็นคำสั่ง "ดูบิลหมายเลขที่" และแยกหมายเลขบิลออกจากข้อความ
-                    if (strpos(strtolower($userMessage), "ดูบิลหมายเลขที่") === 0) {
-                        $billNumber = trim(str_replace("ดูบิลหมายเลขที่", "", $userMessage));
-
-                        // ตรวจสอบรูปแบบหมายเลขบิล
-                        if (!preg_match('/^[a-zA-Z0-9\-]+$/', $billNumber)) {
-                            $message = "รูปแบบหมายเลขบิลไม่ถูกต้อง กรุณาระบุหมายเลขบิลที่เป็นตัวอักษรหรือตัวเลข หรือมีเครื่องหมาย - เท่านั้น\nตัวอย่าง: ดูบิลหมายเลขที่ ABC123-456";
-                            sendReply($replyToken, $message, $access_token);
-                            return;
+                            // อัปเดตสถานะผู้ใช้ให้เป็น null (กลับไปที่เมนูหลัก)
+                            updateUserState($userId, null, $conn);
+                            return;  // ออกจากฟังก์ชันไม่ต้องดำเนินการต่อ
                         }
 
-                        // ถ้าหมายเลขบิลถูกต้อง
-                        showBillDetails($replyToken, $billNumber, $conn, $access_token);
-                        return; // ออกจากฟังก์ชันหลังจากแสดงบิลแล้ว
-                    }
-
-                    // ตรวจสอบกรณีของ "WAITING_CUSTOMER_NAME"
-                    if ($currentState == 'WAITING_CUSTOMER_NAME') {
-                        showCustomerContact($replyToken, $userId, $conn, $access_token, $userMessage);
-                    } elseif (strpos($currentState, 'WAITING_BILL_CONFIRM:') === 0) {
-                        // เมื่อผู้ใช้ตอบ Quick Reply "ดู" หรือ "ไม่ดู"
-                        $parts = explode(':', $currentState);
-                        if (count($parts) == 2) {
-                            $customerId = $parts[1]; // id_customer
-                            $lowerMsg = strtolower(trim($userMessage));
-                            if ($lowerMsg == "ดู") {
-                                showCustomerBill($replyToken, $customerId, $conn, $access_token);
-                                updateUserState($userId, null, $conn);
-                            } elseif ($lowerMsg == "ไม่ดู") {
-                                $welcomeMenu = createWelcomeMenu("สมาชิก");
-                                sendFlexReply($replyToken, $welcomeMenu, $access_token);
-                                updateUserState($userId, null, $conn);
+                        if ($lowerMsg == "กลับไปที่เมนูหลัก") {
+                            // ส่งเมนูหลักกลับไป
+                            $welcomeMenu = createWelcomeMenu("สมาชิก");  // ใช้ชื่อสมาชิก
+                            sendFlexReply($replyToken, $welcomeMenu, $access_token);  // ส่งเมนูหลักไปยังผู้ใช้
+                        
+                            // อัปเดตสถานะผู้ใช้ให้เป็น null (กลับไปที่เมนูหลัก)
+                            updateUserState($userId, null, $conn);
+                        }
+                        
+                        // ตรวจสอบว่าข้อความเป็นหมายเลขบิลหรือไม่ (เป็นตัวเลขทั้งหมด)
+                        if (is_numeric($userMessage)) {
+                            showBillDetails($replyToken, $userMessage, $conn, $access_token);
+                            continue; // ข้ามการประมวลผลส่วนที่เหลือ
+                        }
+                
+                        if ($currentState == 'WAITING_CUSTOMER_NAME') {
+                            // เมื่อผู้ใช้พิมพ์ชื่อลูกค้า
+                            showCustomerContact($replyToken, $userId, $conn, $access_token, $userMessage);
+                            // state จะถูกอัปเดตภายใน showCustomerContact
+                        } elseif (strpos($currentState, 'WAITING_BILL_CONFIRM:') === 0) {
+                            // เมื่อผู้ใช้ตอบ Quick Reply "ดู" หรือ "ไม่ดู"
+                            $parts = explode(':', $currentState);
+                            if (count($parts) == 2) {
+                                $customerId = $parts[1]; // id_customer
+                                $lowerMsg = strtolower(trim($userMessage));
+                                
+                                // ตรวจสอบว่าข้อความเป็นหมายเลขบิลที่มีตัวอักษร ตัวเลข และเครื่องหมายขีด
+                                if (preg_match('/^[a-zA-Z0-9-]+$/', $lowerMsg)) {
+                                    // กรณีเป็นหมายเลขบิล
+                                    showBillDetails($replyToken, $lowerMsg, $conn, $access_token);
+                                    updateUserState($userId, null, $conn);
+                                } elseif ($lowerMsg == "ดู") {
+                                    showCustomerBill($replyToken, $customerId, $conn, $access_token);
+                                    updateUserState($userId, null, $conn);
+                                } elseif ($lowerMsg == "ไม่ดู") {
+                                    $welcomeMenu = createWelcomeMenu("สมาชิก");
+                                    sendFlexReply($replyToken, $welcomeMenu, $access_token);
+                                    updateUserState($userId, null, $conn);
+                                } else {
+                                    $msg = "กรุณาเลือก 'ดู' หรือ 'ไม่ดู' หรือระบุหมายเลขบิลที่ถูกต้อง";
+                                    sendReply($replyToken, $msg, $access_token);
+                                }
+                             }
+                        } else {
+                            // คำสั่งปกติ
+                            if (in_array(strtolower($userMessage), ['สวัสดี', 'เข้าสู่ระบบ', 'hi', 'hello'])) {
+                                requestEmailVerification($replyToken, $access_token);
+                            } elseif (filter_var($userMessage, FILTER_VALIDATE_EMAIL)) {
+                                verifyUserByEmail($replyToken, $userMessage, $userId, $conn, $access_token);
+                            } elseif ($userMessage == "รายละเอียดบัญชี") {
+                                showAccountDetails($replyToken, $userId, $conn, $access_token);
+                            } elseif ($userMessage == "ติดต่อเจ้าหน้าที่") {
+                                contactSupport($replyToken, $access_token);
+                            } elseif ($userMessage == "ช่วยเหลือ") {
+                                showHelp($replyToken, $access_token);
+                            } elseif ($userMessage == "ข้อมูลติดต่อลูกค้า") {
+                                updateUserState($userId, 'WAITING_CUSTOMER_NAME', $conn);
+                                askForCustomerName($replyToken, $access_token);
+                            } elseif (strpos(strtolower($userMessage), "ดูบิลหมายเลขที่") === 0) {
+                                // แยกหมายเลขบิลออกจากข้อความ
+                                $billNumber = trim(str_replace("ดูบิลหมายเลขที่", "", $userMessage));
+                               
+                                // ตรวจสอบว่าหมายเลขบิลเป็นตัวเลข ตัวอักษร และเครื่องหมายขีด
+                                if (preg_match('/^[a-zA-Z0-9-]+$/', $billNumber)) {
+                                    showBillDetails($replyToken, $billNumber, $conn, $access_token);
+                                } else {
+                                    $message = "รูปแบบหมายเลขบิลไม่ถูกต้อง กรุณาระบุหมายเลขบิลที่เป็นตัวเลข ตัวอักษร และเครื่องหมายขีด\nตัวอย่าง: ดูบิลหมายเลขที่0994000528990-1 หรือ ABC-12345";
+                                    sendReply($replyToken, $message, $access_token);
+                                }
                             } else {
-                                $msg = "กรุณาเลือก 'ดู' หรือ 'ไม่ดู'";
-                                sendReply($replyToken, $msg, $access_token);
+                                $defaultReply = "สวัสดีครับ/ค่ะ ไม่เข้าใจคำสั่ง กรุณาพิมพ์ 'เข้าสู่ระบบ' หรือเลือกเมนูด้านล่าง";
+                                sendReply($replyToken, $defaultReply, $access_token);
                             }
                         }
-                    } else {
-                        // คำสั่งปกติ
-                        if (in_array(strtolower($userMessage), ['สวัสดี', 'เข้าสู่ระบบ', 'hi', 'hello'])) {
-                            requestEmailVerification($replyToken, $access_token);
-                        } elseif (filter_var($userMessage, FILTER_VALIDATE_EMAIL)) {
-                            verifyUserByEmail($replyToken, $userMessage, $userId, $conn, $access_token);
-                        } elseif ($userMessage == "รายละเอียดบัญชี") {
-                            showAccountDetails($replyToken, $userId, $conn, $access_token);
-                        } elseif ($userMessage == "ติดต่อเจ้าหน้าที่") {
-                            contactSupport($replyToken, $access_token);
-                        } elseif ($userMessage == "ช่วยเหลือ") {
-                            showHelp($replyToken, $access_token);
-                        } elseif ($userMessage == "ข้อมูลติดต่อลูกค้า") {
-                            updateUserState($userId, 'WAITING_CUSTOMER_NAME', $conn);
-                            askForCustomerName($replyToken, $access_token);
-                        } else {
-                            $defaultReply = "สวัสดีครับ/ค่ะ ไม่เข้าใจคำสั่ง กรุณาพิมพ์ 'เข้าสู่ระบบ' หรือเลือกเมนูด้านล่าง";
-                            sendReply($replyToken, $defaultReply, $access_token);
-                        }
                     }
-                }
-                break;
-            
+                    break;                
             case 'postback':
                 handlePostback($event, $conn, $access_token);
                 break;
@@ -412,75 +427,83 @@ function sendToMainMenu($replyToken, $accessToken) {
 // ฟังก์ชัน showCustomerBill ที่อัปเดตใหม่เมื่อผู้ใช้เลือก "ดู"
 function showCustomerBill($replyToken, $customerId, $conn, $accessToken) {
     error_log("Showing bills for customer ID: " . $customerId);
-
-    // 1. ดึงข้อมูลลูกค้า
+    // ดึงข้อมูลลูกค้า
     $sqlCustomer = "SELECT name_customer FROM customers WHERE id_customer = ?";
     $stmtCustomer = $conn->prepare($sqlCustomer);
     $stmtCustomer->bind_param("i", $customerId);
     $stmtCustomer->execute();
     $resultCustomer = $stmtCustomer->get_result();
-    
+   
     if ($resultCustomer->num_rows == 0) {
         sendReply($replyToken, "ไม่พบข้อมูลลูกค้า", $accessToken);
         return;
     }
-
     $customer = $resultCustomer->fetch_assoc();
     $customerName = $customer['name_customer'];
-
-    // 2. ดึงข้อมูลบิลทั้งหมดของลูกค้า
+    // ดึงข้อมูลบิลทั้งหมดของลูกค้า
     $sqlBills = "SELECT id_bill, number_bill, type_bill, end_date FROM bill_customer WHERE id_customer = ?";
     $stmtBills = $conn->prepare($sqlBills);
     $stmtBills->bind_param("i", $customerId);
     $stmtBills->execute();
     $resultBills = $stmtBills->get_result();
-    
-    // 3. คำนวณรายได้รวม
+   
+    // คำนวณรายได้รวม
     $totalRevenue = getTotalRevenue($customerId, $conn);
-    
-    // 4. สร้างข้อความตอบกลับ
+   
+    // สร้างข้อความตอบกลับ
     $message = "ข้อมูลบิลของลูกค้า: " . $customerName . "\n\n";
-    
+   
     if ($resultBills->num_rows > 0) {
+        // ดึงข้อมูลหมายเลขบิลที่มีตัวอักษรและขีดจากฐานข้อมูล
+        $filteredBills = [];
         while ($bill = $resultBills->fetch_assoc()) {
-            $message .= "บิลเลขที่: " . $bill['number_bill'] . "\n";
-            $message .= "ประเภท: " . $bill['type_bill'] . "\n";
-            $message .= "วันหมดอายุ: " . $bill['end_date'] . "\n\n";
+            // ตรวจสอบว่าหมายเลขบิลประกอบด้วยตัวอักษร ตัวเลข และเครื่องหมายขีด (-)
+            if (preg_match('/^[a-zA-Z0-9-]+$/', $bill['number_bill'])) {
+                $filteredBills[] = $bill;
+            }
         }
 
-        // เพิ่มข้อมูลรายได้รวม
-        $message .= "รายได้รวมทั้งหมด: " . number_format($totalRevenue, 2) . " บาท";
-        
-        // ส่ง Quick Reply ให้เลือก "สนใจหมายเลขบิล" หรือ "ไม่สนใจบิล"
-        $quickActions = [];
+        if (count($filteredBills) > 0) {
+            foreach ($filteredBills as $bill) {
+                $message .= "บิลเลขที่: " . $bill['number_bill'] . "\n";
+                $message .= "ประเภท: " . $bill['type_bill'] . "\n";
+                $message .= "วันหมดอายุ: " . $bill['end_date'] . "\n\n";
+            }
 
-        // ดึงข้อมูลหมายเลขบิลทั้งหมด
-        $resultBills->data_seek(0); // Reset pointer to start
-        while ($bill = $resultBills->fetch_assoc()) {
+            // เพิ่มข้อมูลรายได้รวม
+            $message .= "รายได้รวมทั้งหมด: " . number_format($totalRevenue, 2) . " บาท";
+            
+            // ส่ง Quick Reply ให้เลือกหมายเลขบิล
+            $quickActions = [];
+            foreach ($filteredBills as $bill) {
+                $quickActions[] = [
+                    "action" => [
+                        "type" => "message",
+                        "label" => "บิลเลขที่ " . $bill['number_bill'],
+                        "text" => $bill['number_bill']
+                    ]
+                ];
+            }
+
+            // เพิ่มตัวเลือก "ไม่สนใจบิล"
             $quickActions[] = [
                 "action" => [
                     "type" => "message",
-                    "label" => "บิลเลขที่ " . $bill['number_bill'],
-                    "text" => $bill['number_bill']
+                    "label" => "ไม่สนใจบิล",
+                    "text" => "ไม่สนใจบิล"
                 ]
             ];
+
+            sendQuickReply($replyToken, $message, $accessToken, $quickActions);
+        } else {
+            sendReply($replyToken, "ไม่พบหมายเลขบิลที่มีเครื่องหมายขีดในระบบ", $accessToken);
         }
-
-         // ส่ง Quick Reply สำหรับการเลือกหมายเลขบิล
-         $quickActions[] = [
-            "action" => [
-                "type" => "message",
-                "label" => "ไม่สนใจบิล",
-                "text" => "ไม่สนใจบิล"
-            ]
-        ];
-
-        sendQuickReply($replyToken, $message, $accessToken, $quickActions);
     } else {
         $message .= "ไม่พบข้อมูลบิลของลูกค้าท่านนี้";
         sendReply($replyToken, $message, $accessToken);
     }
 }
+
 
 // ฟังก์ชันในการตอบกลับเมื่อผู้ใช้เลือก "ไม่สนใจบิล" จาก Quick Reply
 function handleIgnoreBill($replyToken, $userId, $conn, $accessToken) {
@@ -492,15 +515,9 @@ function handleIgnoreBill($replyToken, $userId, $conn, $accessToken) {
     updateUserState($userId, 'WAITING_MAIN_MENU', $conn);
 }
 
+
 function showBillDetails($replyToken, $billNumber, $conn, $accessToken) { 
     error_log("Retrieving details for bill number: " . $billNumber);
-
-    // ตรวจสอบว่า หมายเลขบิลเป็นตัวเลข, ตัวอักษร หรือเครื่องหมาย -
-    if (!preg_match('/^[a-zA-Z0-9\-]+$/', $billNumber)) {
-        $message = "รูปแบบหมายเลขบิลไม่ถูกต้อง กรุณาระบุหมายเลขบิลที่เป็นตัวอักษรหรือตัวเลข หรือมีเครื่องหมาย - เท่านั้น\nตัวอย่าง: ABC123-456";
-        sendReply($replyToken, $message, $accessToken);
-        return;
-    }
 
     // 1. ดึง id_bill จากหมายเลขบิล
     $sqlGetBillId = "SELECT id_bill FROM bill_customer WHERE number_bill = ?";
@@ -659,6 +676,7 @@ function showBillDetails($replyToken, $billNumber, $conn, $accessToken) {
     sendReply($replyToken, $message, $accessToken);
 }
 
+// ฟังก์ชัน handleMessage
 function handleMessage($replyToken, $userMessage, $userId, $conn, $accessToken) {
     $lowerMsg = strtolower(trim($userMessage));  // ทำให้ข้อความทั้งหมดเป็นตัวเล็ก
     $currentState = getUserState($userId, $conn);
@@ -672,14 +690,12 @@ function handleMessage($replyToken, $userMessage, $userId, $conn, $accessToken) 
         updateUserState($userId, 'WAITING_MAIN_MENU', $conn);  // อัปเดตสถานะผู้ใช้ให้เป็น "WAITING_MAIN_MENU"
         return;
     }
-   // ตรวจสอบว่าหมายเลขบิลเป็นตัวเลข, ตัวอักษร หรือมีเครื่องหมาย - หรือไม่
-    if (preg_match('/^[a-zA-Z0-9\-]+$/', $userMessage)) {
-        // ถ้าหมายเลขบิลตรงตามรูปแบบที่กำหนด (ตัวเลข, ตัวอักษร หรือเครื่องหมาย -)
+
+    // ตรวจสอบว่าเป็นหมายเลขบิลหรือไม่ (ตัวเลข ตัวอักษร และเครื่องหมายขีด เช่น ABC-12345)
+    if (preg_match('/^[a-zA-Z0-9-]+$/', $userMessage)) {
+        // ถ้าเป็นหมายเลขบิลที่ตรงตามรูปแบบ
         showBillDetails($replyToken, $userMessage, $conn, $accessToken);
         return; // ออกจากฟังก์ชันหลังจากที่ทำงานกับหมายเลขบิลแล้ว
-    } else {
-        $message = "รูปแบบหมายเลขบิลไม่ถูกต้อง กรุณาระบุหมายเลขบิลที่เป็นตัวอักษรหรือตัวเลข หรือมีเครื่องหมาย - เท่านั้น\nตัวอย่าง: ดูบิลหมายเลขที่ ABC123-456";
-        sendReply($replyToken, $message, $accessToken);
     }
 
     // ถ้าผู้ใช้เลือกหมายเลขบิลที่มีในระบบ
